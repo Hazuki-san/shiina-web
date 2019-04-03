@@ -41,7 +41,7 @@ public class Leaderboard extends Route {
 		int nextpage = page + 1;
 
 		m.put("titlebar", "Leaderboard");
-		Permission.hasPermissions(request, m);
+		Permission.hasPermissions(request, m, response);
 
 		ArrayList<LeaderboardContent> neww = new ArrayList<LeaderboardContent>();
 		JSONObject jsonObject = new JSONObject(API.request("leaderboard?p=" + page + "&mode=" + mode));
@@ -97,7 +97,7 @@ public class Leaderboard extends Route {
 		m.put("lastpage", page - 1);
 
 		try {
-			Template template = Site.cfg.getTemplate("leaderboardpp.html");
+			Template template = Site.cfg.getTemplate("leaderboard.html");
 			Writer out = new StringWriter();
 			template.process(m, out);
 			String outt = out.toString();

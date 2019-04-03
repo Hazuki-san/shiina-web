@@ -15,9 +15,11 @@ import freemarker.template.TemplateExceptionHandler;
 import kazukii.me.gg.configs.Config;
 import kazukii.me.gg.configs.u;
 import shiina.content.mysql;
+import shiina.sites.get.Clan;
 import shiina.sites.get.ClanLeaderboard;
 import shiina.sites.get.Download;
 import shiina.sites.get.Error;
+import shiina.sites.get.Friend;
 import shiina.sites.get.Friends;
 import shiina.sites.get.Home;
 import shiina.sites.get.Leaderboard;
@@ -49,7 +51,8 @@ public class Site {
 		msql = new mysql(Config.getString("mysqlusername"), Config.getString("mysqlpassword"), Config.getString("mysqldatabase"), Config.getString("mysqlip"), Integer.parseInt(Config.getString("mysqlport") + ""));
 		
 		Spark.setPort(Integer.parseInt(Config.getString("sparkport")));
-
+		
+		
 		String log4jConfPath ="log4j.properties";
 		PropertyConfigurator.configure(log4jConfPath);
 		
@@ -61,12 +64,12 @@ public class Site {
 		Spark.externalStaticFileLocation("static/");
 		
 		File templates = new File("templates/");
-		File websitedocs = new File("static/");
+		File staticfolder = new File("static/");
 		
-		final File[] alldocs = websitedocs.listFiles();
+		final File[] staticfiles = staticfolder.listFiles();
 		
 		if(!templates.exists())templates.mkdirs();
-		if(!websitedocs.exists())websitedocs.mkdirs();
+		if(!staticfolder.exists())staticfolder.mkdirs();
 		
 		cfg.setDirectoryForTemplateLoading(templates);
 		
@@ -79,10 +82,15 @@ public class Site {
 		getroutes.add(new Login("/register"));
 		getroutes.add(new Logout("/logout"));
 		getroutes.add(new Unfriend("/unfriend"));
+		getroutes.add(new Friend("/friend"));
 		getroutes.add(new Download("/home/download"));
 		getroutes.add(new Download("/download"));
 		
+		getroutes.add(new Profile("/users/:id/:mode"));
 		getroutes.add(new Profile("/users/:id"));
+		
+		getroutes.add(new Clan("/clans/:id/:mode"));
+		getroutes.add(new Clan("/clans/:id"));
 		
 		getroutes.add(new Leaderboard("/rankings/osu/performance", "0"));
 		getroutes.add(new Leaderboard("/rankings/fruits/performance", "2"));
@@ -120,7 +128,7 @@ public class Site {
 			@Override
 			public Object handle(Request request, Response response) {
 				Boolean s = false;
-				for(File f : alldocs) {
+				for(File f : staticfiles) {
 					if(request.pathInfo().startsWith("/"+f.getName())) {
 						s = true;
 					}
@@ -129,8 +137,8 @@ public class Site {
 				if(s == true) {
 					return null;
 				}else {
-					return new Error().generateError(request, "404", "Not found");
-				}
+					return null;
+				}	
 			}
 		});
 		

@@ -3,17 +3,23 @@ package shiina.sites.get;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
+import kazukii.me.gg.configs.Config;
 import kazukii.me.gg.configs.u;
 import kazukii.me.gg.sites.Permission;
 import shiina.content.API;
+import shiina.content.Beatmap;
+import shiina.content.Medal;
 import shiina.content.mysql;
 import shiina.main.Site;
 import spark.Request;
@@ -37,7 +43,9 @@ public class Profile extends Route {
 	@Override
 	public Object handle(Request request, Response response) {
 
-		Permission.hasPermissions(request, m);
+		
+		
+		Permission.hasPermissions(request, m, response);
 		
 		String name = null;
 		int privileges = 0;
@@ -60,10 +68,12 @@ public class Profile extends Route {
 
 		String aka = null;
 		String country = null;
+		int favo = 0;
 		try {
 			ResultSet userstats = mysql.Query("SELECT * FROM `users_stats` WHERE `id` = ?", request.params(":id"));
 
 			while (userstats.next()) {
+				favo = userstats.getInt("favourite_mode");
 				aka = userstats.getString("username_aka");
 				country = userstats.getString("country");
 				if (aka.length() <= 1) {
@@ -76,8 +86,25 @@ public class Profile extends Route {
 			e.printStackTrace();
 		}
 		
+		if(request.params("mode") == null) {
+			String mode = null;
+			if(favo == 0) {
+				mode = "osu";
+			}else if(favo == 1) {
+				mode = "taiko";
+			}else if(favo == 2) {
+				mode = "ctb";
+			}else if(favo == 3) {
+				mode = "mania";
+			}
+			response.redirect("/users/"+request.params(":id") + "/"+mode);
+			return "SS";
+		}
+		
+		
+		
 		try {
-			ResultSet ranks = mysql.Query("SELECT * FROM `beatmap_ranks` WHERE `id` = ?", request.params(":id"));
+			ResultSet ranks = mysql.Query("SELECT * FROM `beatmap_ranks` WHERE `userid` = ?", request.params(":id"));
 			Boolean working = false;
 			while (ranks.next()) {
 				m.put("pSS", ranks.getInt("SS"));
@@ -102,32 +129,40 @@ public class Profile extends Route {
 		m.put("puser", name);
 		m.put("pcountry", country);
 		m.put("pprivileges", privileges);
-		if (m.get("userid").toString().contains(m.get("pid").toString())) {
-			m.put("yourself", "true");
-		} else {
+		m.put("userpagebb", Permission.bbcode(m.get("userpages").toString()));
+		if(m.get("loggedin") == "true") {
+			if (m.get("userid").toString().contains(m.get("pid").toString())) {
+				m.put("yourself", "true");
+			} else {
+				m.put("yourself", "false");
+			}
+		}else {
 			m.put("yourself", "false");
 		}
+		
+		
 
 		JSONObject jsonObject = new JSONObject(API.request("users/full?id=" + request.params(":id")));
-		JSONObject mode = jsonObject.getJSONObject("std");
+		JSONObject mode = jsonObject.getJSONObject(request.params("mode").replaceAll("osu", "std").replaceAll("fruits", "ctb"));
 		try {
 			m.put("prank", mode.getInt("global_leaderboard_rank"));
 		} catch (Exception e) {
-			m.put("prank", "SS");
+			m.put("prank", "Unknown");
 		}
-		
-		
-		m.put("p_rscore", mode.getInt("ranked_score"));
-		m.put("pscore", mode.getInt("total_score"));
+		m.put("p_rscore", mode.getBigInteger("ranked_score"));
+		m.put("pscore", mode.getBigInteger("total_score"));
 		m.put("ppc", mode.getInt("playcount"));
 		m.put("preplays", mode.getInt("replays_watched"));
-		m.put("phits", mode.getInt("total_hits"));
+		m.put("phits", mode.getBigInteger("total_hits"));
 		m.put("latest_activity", jsonObject.getString("latest_activity"));
 		m.put("registered_on", jsonObject.getString("registered_on"));
-		m.put("plvf", mode.getInt("level"));
+		m.put("plvf", mode.getLong("level"));
 		String lv = mode.getDouble("level") + "";
-		u.s.println(lv.substring(0,(int)Math.log10(mode.getInt("level"))+2));
-		m.put("plv", lv.substring((int)Math.log10(mode.getInt("level"))+2, lv.length()).substring(0,2));
+		try {
+			m.put("plv", lv.substring((int)Math.log10(mode.getLong("level"))+2, lv.length()).substring(0,2));
+		}catch(Exception e) {
+			m.put("plv", "0");
+		}
 		m.put("pacc", mode.getLong("accuracy"));
 		m.put("ppp", mode.getInt("pp"));
 		try {
@@ -147,10 +182,131 @@ public class Profile extends Route {
 		} catch (Exception e) {
 			m.put("subs", 0);
 		}
+		
+		int modeint = 0;
+		String modee = request.params("mode");
+		if(modee.contains("osu")) {
+			modeint = 0;
+		}else if(modee.contains("taiko")) {
+			modeint = 1;
+		}else if(modee.contains("fruits")) {
+			modeint = 2;
+		}else if(modee.contains("mania")) {
+			modeint = 3;
+		}
+		
+		ArrayList<Medal> medals = new ArrayList<>();
+		try {
+			ResultSet getMedals = mysql.Query("SELECT * FROM `users_achievements` WHERE `user_id` = ?", request.params("id"));
+			while (getMedals.next()) {
+				int aid = getMedals.getInt("achievement_id");
+				PreparedStatement stmt = mysql.getCon().prepareStatement("SELECT * FROM `achievements` WHERE `id` = ?");
+				stmt.setInt(1, aid);
+				if (Config.getString("debug").contains("true")) {
+					u.s.println(stmt.toString());
+				}
+				ResultSet getMedalInfos = stmt.executeQuery();
+				while(getMedalInfos.next()) {
+					Medal medal = new Medal();
+					medal.setDescription(getMedalInfos.getString("description"));
+					medal.setIcon(getMedalInfos.getString("icon"));
+					medal.setName(getMedalInfos.getString("name"));
+					medals.add(medal);
+				}
+				
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		
+		m.put("medallist", medals);
+		
+		ArrayList<Beatmap> f = new ArrayList<>();
+		
+		try {
+			JSONObject jsonObject2 = new JSONObject(API.request("users/scores/best?id=" + request.params(":id") + "&mode=" + modeint + "&l=10"));
+			JSONArray scores = jsonObject2.getJSONArray("scores");
+			for (int i = 0; i < scores.length(); i++) {
+				String title = scores.getJSONObject(i).getJSONObject("beatmap").getString("song_name");
+				String[] separated = title.split("\\-");
+				
+				Beatmap b = new Beatmap();
+				b.setAcc(scores.getJSONObject(i).getDouble("accuracy"));
+				b.setArtist(separated[0]);
+				b.setName(title.replaceAll(separated[0], "").replaceAll("-", ""));
+				b.setPP(scores.getJSONObject(i).getInt("pp"));
+				b.setID(scores.getJSONObject(i).getJSONObject("beatmap").getInt("beatmap_id") + "");
+				b.setsetID(scores.getJSONObject(i).getInt("id") + "");
+				
+				f.add(b);
+			}
+		}catch(Exception e) {
+			
+		}
+		
+		m.put("top_ranks", f);
+		
+		//Last Ranks
+		ArrayList<Beatmap> f2 = new ArrayList<>();
+		
+		try {
+			JSONObject jsonObject3 = new JSONObject(API.request("users/scores/recent?id=" + request.params(":id") + "&mode=" + modeint +"&l=10"));
+			JSONArray scores2 = jsonObject3.getJSONArray("scores");
+			
+			for (int i = 0; i < scores2.length(); i++) {
+				String title = scores2.getJSONObject(i).getJSONObject("beatmap").getString("song_name");
+				String[] separated = title.split("\\-");
+				
+				Beatmap b = new Beatmap();
+				b.setAcc(scores2.getJSONObject(i).getDouble("accuracy"));
+				b.setArtist(separated[0]);
+				b.setName(title.replaceAll(separated[0], "").replaceAll("-", ""));
+				b.setPP(scores2.getJSONObject(i).getInt("pp"));
+				b.setID(scores2.getJSONObject(i).getJSONObject("beatmap").getInt("beatmap_id") + "");
+				b.setsetID(scores2.getJSONObject(i).getInt("id") + "");
+				
+				f2.add(b);
+			}
+		
+		}catch(Exception e) {
+			
+		}
+		
+		
+		
+		m.put("last_ranks", f2);
+		
+		if(m.get("loggedin") == "true") {
+			try {
+				int i = 0;
+				
+					PreparedStatement stmt = mysql.getCon().prepareStatement("SELECT * FROM `users_relationships` WHERE user1= ? AND user2 = ?");
+					stmt.setInt(1, Integer.parseInt(m.get("userid").toString()));
+					stmt.setInt(2, Integer.parseInt(request.params(":id")));
+					if (Config.getString("debug").contains("true")) {
+						u.s.println(stmt.toString());
+					}
+					
+					ResultSet getFriendStatus = stmt.executeQuery();
+				while (getFriendStatus.next()) {
+					 i = 1;
+					m.put("isFriend", "true");
+				}
+				
+				if(i==0) {
+					m.put("isFriend", "false");
+				}
+			} catch (Exception e) {
+				e.printStackTrace();
+				m.put("isFriend", "false");
+			}
+		}
 
 		m.put("titlebar", "Profile of " + name);
 		m.put("fixed", "false");
 		m.put("profile", "true");
+		
+		m.put("mode", request.params(":mode"));
 
 		try {
 			Template template = Site.cfg.getTemplate("profile.html");
